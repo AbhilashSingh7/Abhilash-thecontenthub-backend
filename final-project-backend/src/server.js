@@ -14,6 +14,15 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+/* NEW: support multiple allowed frontend origins
+   - FRONTEND_URLS can be comma-separated (e.g. "http://localhost:5173,http://192.168.86.242:5173")
+   - falls back to your existing FRONTEND_URL, then localhost
+*/
+const FRONTEND_URLS = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -25,10 +34,18 @@ const limiter = rateLimit({
 // Middleware
 app.use(helmet());
 app.use(limiter);
+
+// UPDATED: CORS now accepts localhost AND your LAN origin(s) + credentials
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
+  origin(origin, cb) {
+    // allow same-origin / non-browser clients (no Origin header)
+    if (!origin) return cb(null, true);
+    if (FRONTEND_URLS.includes(origin)) return cb(null, true);
+    return cb(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  credentials: true,
 }));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -214,7 +231,8 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+// UPDATED: bind to 0.0.0.0 so LAN devices can reach the API
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+  console.log(`✅ Allowed frontend origins: ${FRONTEND_URLS.join(', ')}`);
 });
